@@ -1,0 +1,17 @@
+# Build artifacts
+build/
+*.elf
+*.nds
+*.arm7
+*.arm9
+*.bin
+*.o
+*.d
+*.map
+
+# Editor
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
