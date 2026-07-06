@@ -8,29 +8,16 @@
 #include <stdio.h>
 
 //Constants
-const char* items[] = {"MittROMney", "ROMnaldRegan", "ROMnaldMcdonald"};
+const char* items[] = {"MittROMney", "ROMnaldRegan", "ROMnaldMcdonald", "Barack OROMba"};
 const int itemcount = sizeof(items)/sizeof(items[0]);
 //Functions
 void drawMenu(int selection) {
 		//clears screen
 		iprintf("\x1b[2J");
-		//conditional selector print based on state
-		if (selection == 0) { 
-			iprintf("\x1b[5;10H--> %s", items[0]);
-		} else {
-			iprintf("\x1b[5;10H %s", items[0]);
-		}
-
-		if (selection == 1) {
-			iprintf("\x1b[6;10H--> %s", items[1]);
-		} else {
-			iprintf("\x1b[6;10H %s", items[1]);
-		}
-
-		if (selection == 2) {
-			iprintf("\x1b[7;10H --> %s", items[2]);
-		} else {
-			iprintf("\x1b[7;10H %s", items[2]);
+		//prints list and conditional selector print based on state
+		for (int i = 0 ; i < itemcount; i++) {
+			const char* prefix = (i == selection) ? "-->" : "   ";
+			iprintf("\x1b[%d;10H %s %s", 5 + i, prefix, items[i]);
 		}
 	}
 //---------------------------------------------------------------------------------
