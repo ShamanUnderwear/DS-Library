@@ -4,6 +4,7 @@
 
 ---------------------------------------------------------------------------------*/
 //Includes
+#include <fat.h>
 #include <nds.h>
 #include <stdio.h>
 
@@ -27,7 +28,15 @@ int main(int argc, char* argv[]) {
 	consoleDemoInit();
 	int selection = 0; //selector state variable
 	drawMenu(selection); //initial menu draw
-
+	//storage check
+	if (fatInitDefault()) {
+		iprintf("\x1b[8;1H DSi mode: %d", isDSiMode());
+		iprintf("\x1b[10;1H FAT OK");
+	} else {
+		iprintf("\x1b[8;1H DSi mode: %d", isDSiMode());
+		iprintf("\x1b[10;1H FAT FAILED");
+	}
+	
 	while(pmMainLoop()) {
 		swiWaitForVBlank();
 		scanKeys();
