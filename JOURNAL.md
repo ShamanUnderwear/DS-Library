@@ -133,3 +133,57 @@ device driver for SD/flashcart access), directory iteration via POSIX-like
 API (`opendir`/`readdir`), string filtering for .nds extensions. This is 
 the "cliff" from earlier — first real system-programming step. Expect 
 friction. Journal the friction thoroughly.
+
+## Session 2–3 — Filesystem: rung 1 (mount)
+
+**Outcome:** `fatInitDefault()` returns true, `isDSiMode()` returns 1, menu
+renders. Rung 1 cleared — under no$gba, not melonDS.
+
+**Root cause of the multi-session block: melonDS's DSi SD emulation.**
+Settled by differential test — identical .nds, identical BIOS/NAND dumps,
+identical SD contents. Works in no$gba, fails in melonDS. Not my code, not
+my toolchain. Consistent with libnds 2.0's DSi SD/eMMC driver being rewritten
+from scratch around new threading/interrupt paths; melonDS self-labels DSi
+mode experimental. unlaunch reads the same card fine because it ships its own
+simpler driver — which is why "unlaunch can see the SD" was misleading
+evidence for so long.
+
+**Method that worked:** layered isolation plus controls.
+- Bisected downward: dumps boot DSi menu ✓ → console sees SD via camera app ✓
+  → image has valid FAT16 MBR (type 0x06, LBA 63, 55AA) ✓ → unlaunch reads
+  launcher.nds off it ✓ → fatInitDefault fails ✗
+- Control #1: built devkitPro's own filesystem/libfat example. Failed
+  identically → eliminated all of my code in one step.
+- Control #2: second emulator. Passed → eliminated the toolchain, localized
+  to melonDS.
+
+Having *no reference for success* was the thing that made the first several
+hours unproductive. Get a control early.
+
+**Dead hypotheses (5), for the record(claude's fault, i don't this toolcahin man good for notes tho):**
+1. DSi unitcode header flag — devkitARM builds are hybrid; the entry point is
+   the variable, not the build.
+2. Malformed SD image — unlaunch had already read it.
+3. Wrong filesystem library / missing libdvm — **libfat-nds 2.x IS the
+   libdvm-era library** under the retained package name. `-lfat` is correct.
+   There is no separate libdvm package.
+4. "Not on the v2 stack" — read the absence of libdvm.a backwards.
+5. Dirty install requiring reinstall — did it, unnecessary, tree was coherent.
+
+**Environment facts worth keeping:**
+- no$gba uses fixed filenames in the exe's directory and silently ignores
+  anything else: `BIOSDSI9.ROM`, `BIOSDSI7.ROM`, `DSI-1.MMC`. Wrong names →
+  no BIOS loaded → CPU executes garbage → "undefined opcode."
+- SD image must be `DSi-1.sd`, shipped blank inside `DSI-SD.ZIP`. No folder
+  sync — mount with OSFMount (or write into it with mtools) to add files.
+- Stale `.d` files in build/ record absolute source paths and survive layout
+  changes. Symptom: "No rule to make target <wrong path>". Fix: `make clean`.
+
+**Design decision holding up:** no hardcoded drive prefixes. Lets me develop
+against whatever mounts and deploy to `sd:/` on hardware unchanged.
+
+**Cost:** ~2 sessions, zero launcher code. Claude put some bs here. I HATED this project for like 2 weeks because of ts. We're good now though.
+
+**Next:** rung 2 — opendir/readdir/closedir, iprintf every entry unfiltered.
+Then rung 3 (filter . / .. / non-.nds), rung 4 (fixed-size buffer, wire to
+drawMenu). Scrolling and chainload deferred.

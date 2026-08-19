@@ -7,10 +7,23 @@
 #include <fat.h>
 #include <nds.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <dirent.h>
+#include <string.h>
+
+//Definitions
+#define MAX_ITEMS 32
 
 //Constants
-const char* items[] = {"MittROMney", "ROMnaldRegan", "ROMnaldMcdonald", "Barack OROMba"};
-const int itemcount = sizeof(items)/sizeof(items[0]);
+//const char* items[] = {"MittROMney", "ROMnaldRegan", "ROMnaldMcdonald", "Barack OROMba"};
+//const int itemcount = sizeof(items)/sizeof(items[0]);
+
+//Variables
+char* items[MAX_ITEMS]; //static array for printing dump from SD
+char  item_storage[MAX_ITEMS][256]; //character storage for readdir buffer, 32 items, each with a 256 byte buffer
+//int itemcount = sizeof(items)/sizeof(items[0]); 
+int itemcount = 0;
 //Functions
 void drawMenu(int selection) {
 		//clears screen
@@ -18,7 +31,7 @@ void drawMenu(int selection) {
 		//prints list and conditional selector print based on state
 		for (int i = 0 ; i < itemcount; i++) {
 			const char* prefix = (i == selection) ? "-->" : "   ";
-			iprintf("\x1b[%d;10H %s %s", 5 + i, prefix, items[i]);
+			iprintf("\x1b[%d;1H %s %s", 5 + i, prefix, items[i]);
 		}
 	}
 //---------------------------------------------------------------------------------
@@ -26,17 +39,31 @@ int main(int argc, char* argv[]) {
 //---------------------------------------------------------------------------------
 
 	consoleDemoInit();
-	int selection = 0; //selector state variable
-	drawMenu(selection); //initial menu draw
-	//storage check
 	if (fatInitDefault()) {
-		iprintf("\x1b[8;1H DSi mode: %d", isDSiMode());
-		iprintf("\x1b[10;1H FAT OK");
-	} else {
-		iprintf("\x1b[8;1H DSi mode: %d", isDSiMode());
-		iprintf("\x1b[10;1H FAT FAILED");
+		iprintf("\x1b[8;1H FAT loads");
+	}else{
+		iprintf("\x1b[8;1H FAT fails");
 	}
+	struct dirent * entry; // pointer for each entry in filesystem
+	DIR * dir; //pointer for directory
+	int selection = 0; //selector state variable
+	//char buffer[256]; //buffer variable from testing getcwd()
+	dir = opendir(".");
+	iprintf("\x1b[9;1H %p", dir);
+	if (dir != NULL){
+		while ((entry = readdir(dir)) != NULL && itemcount < MAX_ITEMS){
+		strncpy(item_storage[itemcount], entry->d_name, 255); //readdir returns pointer to buffer, strncpy used to copy bytes(characters) from buffer to persistent storage
+		item_storage[itemcount][255] = '\0'; //adds null byte to end of string to guarantee it is terminated, preventing over read (Heartbleed reference)
+		items[itemcount] = item_storage[itemcount]; //appends string to array for SD dump
+		itemcount ++;
+		}
+	}else{
+		iprintf("\x1b[10;1H error: null pointer from open directory operation");
+	}
+	closedir(dir);
+	drawMenu(selection); //initial menu draw
 	
+
 	while(pmMainLoop()) {
 		swiWaitForVBlank();
 		scanKeys();
