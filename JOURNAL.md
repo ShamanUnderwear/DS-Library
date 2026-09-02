@@ -1,7 +1,7 @@
 # Development Journal
 
 ## Session 1 — Environment setup through first working menu
-Date: [06/05/2026]
+Date: [07/05/2026]
 
 ### Goal
 Install devkitPro on Windows 11, prove the toolchain builds a runnable .nds, 
