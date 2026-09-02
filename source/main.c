@@ -33,7 +33,7 @@ void drawMenu(int selection) {
 		for (int i = 0 ; i < itemcount; i++) {
 			const char* prefix = (i == selection) ? ">" : " ";
 			const char* dprefix = (item_type[i] == DT_DIR) ? "/" : " ";
-			iprintf("\x1b[%d;1H %s %s %s", 5 + i, prefix, dprefix, items[i]);
+			iprintf("\x1b[%d;1H%s%s%s", 5 + i, prefix, dprefix, items[i]);
 		}
 	}
 //---------------------------------------------------------------------------------
@@ -42,9 +42,9 @@ int main(int argc, char* argv[]) {
 
 	consoleDemoInit();
 	if (fatInitDefault()) {
-		iprintf("\x1b[3;2H FAT loads");
+		iprintf("\x1b[3;2HFAT loads");
 	}else{
-		iprintf("\x1b[3;2H FAT fails");
+		iprintf("\x1b[3;2HFAT fails");
 	}
 	struct dirent * entry; // pointer for each entry in filesystem
 	DIR * dir; //pointer for directory
@@ -80,14 +80,14 @@ int main(int argc, char* argv[]) {
 			itemcount ++;
 		}
 		if (readdir(dir) != NULL){
-			iprintf("\x1b[3;1H output truncated by display limit");
+			iprintf("\x1b[3;1Houtput truncated by display limit");
 		}
 		closedir(dir);
 	}else{
-		iprintf("\x1b[3;1H error: null pointer from open directory operation");
+		iprintf("\x1b[3;1Herror: null pointer from open directory operation");
 	}
 	if (itemcount == 0){
-		iprintf("\x1b[4;2H No files found"); //when items is empty, prevents potential crashes and prints helpful message
+		iprintf("\x1b[4;2HNo files found"); //when items is empty, prevents potential crashes and prints helpful message
 	}
 	drawMenu(selection); //initial menu draw
 	
@@ -117,7 +117,7 @@ int main(int argc, char* argv[]) {
 		//Displays select message when a button is pressed
 		if(pressed & KEY_A && itemcount > 0) {
 			drawMenu(selection);
-			iprintf("\x1b[4;1H ROM %s selected", items[selection]);
+			iprintf("\x1b[4;1HROM %s selected", items[selection]);
 		}
 		if(pressed & KEY_START) break;
 	}

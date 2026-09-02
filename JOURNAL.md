@@ -1,7 +1,7 @@
 # Development Journal
 
 ## Session 1 — Environment setup through first working menu
-Date: [fill in]
+Date: [06/05/2026]
 
 ### Goal
 Install devkitPro on Windows 11, prove the toolchain builds a runnable .nds, 
@@ -187,3 +187,132 @@ against whatever mounts and deploy to `sd:/` on hardware unchanged.
 **Next:** rung 2 — opendir/readdir/closedir, iprintf every entry unfiltered.
 Then rung 3 (filter . / .. / non-.nds), rung 4 (fixed-size buffer, wire to
 drawMenu). Scrolling and chainload deferred.
+
+## Session 4 — Filesystem: rungs 2–4 (enumerate, filter, wire)
+
+**Outcome:** menu now populates from the live SD image — real `.nds` files and
+directories, cursor working. All four rungs of the enumeration ladder cleared
+under no$gba. First fully data-driven build.
+
+**Array groundwork first.** Switching the hardcoded `const char* items[]` to a
+runtime data source broke immediately: declared `char* items[]` with an empty
+initializer, compiler read it as `char*[0]`, every index tripped
+`-Warray-bounds`. A C array's size is fixed at declaration — can't grow an empty
+one at runtime. Fix: fixed capacity `char* items[MAX_ITEMS]` (32) plus
+`int itemcount = 0` for how many slots are actually filled, loop bound
+`i < itemcount`. This is the same fixed-buffer-over-malloc call I locked earlier
+— bounded failure modes, no allocator on hardware with no memory protection.
+
+### Rung 2 — raw enumeration
+
+opendir/readdir/closedir, copy each entry into owned storage, print unfiltered.
+Listing matched the test corpus exactly, count confirmed by hand.
+
+**The core misconception, three bugs deep: `readdir` is a consuming call, not a
+peek.** Each call advances the stream.
+
+- Called `readdir` in both the `while` condition and the `if` body → consumed
+  two entries per iteration, silently dropped every other file. Fixed with
+  assign-in-condition: `while ((entry = readdir(dir)) != NULL && itemcount < MAX_ITEMS)`.
+  Appears exactly once now.
+- `items[i] = entry->d_name` stored a pointer into readdir's single internal
+  buffer, overwritten every call → every slot aliased the same address, list
+  showed the last name repeated. The `dirent*` is **borrowed, not owned.** Fix:
+  `char item_storage[MAX_ITEMS][256]`, `strncpy` the characters in.
+- `strncpy` doesn't null-terminate when the source fills the full width →
+  explicit `item_storage[i][255] = '\0'` is load-bearing. Caps worst case at
+  truncation, not over-read.
+
+**Detour: getcwd.** Appeared unavailable, adding `unistd.h` threw an error that
+vanished on recompile. `make clean && make` proved a clean from-scratch build →
+stale build state, not a missing symbol (same `.d`-file class of ghost as
+Session 2–3). `getcwd` returns `/` — no loader-supplied cwd under no$gba, `.` is
+the default device root. Ultimately diagnostic sugar; didn't need it.
+
+**Detour: fatInitDefault failing again — but NOT melonDS this time.** Distinct
+fault, self-inflicted. Nothing added since rung 1 runs before the mount, so the
+code wasn't the variable — the image was, after I'd written to it via OSFMount.
+**Root cause: wrong filesystem on the image** (not FAT12/16/32). Reformatted,
+mount succeeded. `opendir` returning `0x0` was a downstream symptom of the dead
+mount, not a second bug — one root cause, two error messages. The `%p` print
+pointed at init vs. logic correctly and did its job.
+
+**Meta-lesson that cost time:** reasoned about a blank screen instead of reading
+what was on it — a partial status line got misread as "nothing printed." Print
+explicit state; never infer from absence.
+
+### Rung 3 — filter to .nds + directory display
+
+Filter runs inside the loop on `entry->d_name` directly, `continue` before any
+copy. Only `.nds` listed, directories shown with a `/` marker.
+
+- `entry->d_name[0] == "."` wouldn't compile — wasted a while on it. Root cause
+  was quoting: `'.'` is a char constant (type `int`), `"."` is a string literal
+  decaying to `char*`. Char-vs-pointer. Not an indexing problem.
+- `strrchr` returns NULL on a dotless name; first version fed that straight to
+  `strcasecmp`. `README` would've dereferenced NULL — no MMU, so no clean fault,
+  just garbage or lockup. Guarded, reject on NULL.
+- The `.`/`..` first-char skip looked redundant with the extension filter, but
+  went load-bearing again once directories were accepted — `.` and `..` are
+  directories and would pass the new `DT_DIR` branch otherwise.
+- First directory version nested `DT_DIR` inside the "no dot" branch → only
+  dotless folder names accepted, `backup.old` rejected. Restructured: test
+  `DT_DIR` first, accept unconditionally, fall through to extension logic.
+  Directory-ness is a separate classification, not a sub-case of the dotless path.
+- Confirmed `d_type` in-toolchain by grepping `sys/dirent.h`
+  (`unsigned char d_type;`, `#define DT_DIR 4`). Header presence proves
+  declaration only; confirmed calico *populates* it empirically when the corpus
+  subdir rendered with its marker. No `stat` fallback needed. `DT_DIR == 4` →
+  BSD/Linux-conventional values; compare the named constant, never the literal.
+
+**Also resolved:** the missing top rows from earlier were text wrapping +
+console scrolling — long names wrap to a second row, pushing earlier output off
+the top. Not cursor addressing.
+
+### Rung 4 — wire to menu
+
+Mostly landed back in rung 2 (the storage copy + `items[]` wiring). Remaining
+work was initializing `item_type[itemcount] = entry->d_type` on **both** accept
+paths, not just the directory one. The file path had been leaning on global
+zero-init, which holds only until re-enumeration reuses a slot — a latent bug
+primed to fire the moment directory navigation lands. Every claimed slot is now
+fully initialized by the iteration that claims it.
+
+### Traps / lessons for future me
+
+- `readdir` advances the stream. Call it once per iteration. Its returned
+  pointer is borrowed and reused — copy out, never store the pointer.
+- `strncpy` doesn't terminate on a full-width copy. Terminate manually or it's a
+  latent over-read.
+- Char constant `'x'` vs string literal `"x"` — different types (`int` vs
+  `char*`). Single vs double quotes is a type decision, not a style one.
+- `strrchr`/`strchr` return NULL on no-match — guard before dereferencing. On a
+  no-MMU target a NULL deref doesn't fault cleanly.
+- A header defining a field proves declaration, not population. Verify the value
+  is actually filled before depending on it.
+- Bitwise `&` vs logical `&&` in conditions: `pressed & KEY_UP & itemcount > 0`
+  parses as a bitwise AND against 1 (relational binds tighter). `KEY_UP` is
+  `BIT(6)` so it silently never fired; `KEY_A` is `BIT(0)` so A worked by
+  accident of bit position. Masking is `&`, logic is `&&`.
+- Write-path bounds without matching read-path bounds is a recurring shape here
+  — the empty-directory `items[-1]` reach and the uninitialized `item_type` slot
+  were both this. Guard reads, not just writes.
+
+### Where I am now
+
+- Fully data-driven menu off the SD image: `.nds` files and directories, `/`
+  marker on dirs, wraparound cursor, empty-directory and truncation messages.
+- Deliberate test corpus on `DSi-1.sd` (mixed-case ext, no-dot, multi-dot,
+  near-miss `.ndsx`, dotfile, subdir, overlong name) — reusable regression set.
+- Known open: copy block duplicated across both accept branches. Prefix
+  decoration eats 2 of 32 columns.(remember for scrolling session) `5 + i` row math runs off a 24-row screen
+  ~i=18. Directories display but aren't enterable.
+
+### Next session
+
+Two candidates, and they interact — pick the order deliberately. **Scrolling**
+(deferred since day one): a viewport over `items[]` so long lists and wrapped
+names stop eating rows; width-truncation belongs in the same pass. **Directory
+navigation:** current-path tracking, re-enumerate on select, reset `selection`
+to 0, and a surgical dot filter (reject `.`, keep `..`) so `..` walks back up —
+not a small addition. After both: **chainload** — the actual point of the launcher.
